@@ -28,6 +28,10 @@ set(PICO_BOARD pico2 CACHE STRING "Board type")
 # Pull in Raspberry Pi Pico SDK (must be before project)
 include(pico_sdk_import.cmake)
 
+# Pull in Raspberry Pi Pico Extras
+set(PICO_EXTRAS_FETCH_FROM_GIT ON)
+include(pico_extras_import.cmake)
+
 project(2350-vibe-synth C CXX ASM)
 
 # Initialise the Raspberry Pi Pico SDK
@@ -35,7 +39,7 @@ pico_sdk_init()
 
 # Add executable. Default name is the project name, version 0.1
 
-add_executable(${PROJECT_NAME} main.cpp )
+add_executable(${PROJECT_NAME} main.cpp usb_descriptors.c)
 
 pico_set_program_name(${PROJECT_NAME} "2350-vibe-synth")
 pico_set_program_version(${PROJECT_NAME} "0.1")
@@ -43,7 +47,6 @@ pico_set_program_version(${PROJECT_NAME} "0.1")
 # Modify the below lines to enable/disable output over UART/USB
 pico_enable_stdio_uart(${PROJECT_NAME} 0)
 pico_enable_stdio_usb(${PROJECT_NAME} 0)
-
 
 set(CMSISCORE ${PICO_SDK_PATH}/src/rp2_common/cmsis/stub/CMSIS/Core)
 add_compile_definitions(USE_ARM_DSP)
@@ -53,9 +56,10 @@ add_subdirectory(lib/CMSIS-DSP)
 
 target_link_libraries(${PROJECT_NAME} DaisySP)
 target_link_libraries(${PROJECT_NAME} CMSISDSP)
+target_link_libraries(${PROJECT_NAME} pico_audio_i2s)
 
 # Add the standard library to the build
-target_link_libraries(${PROJECT_NAME} pico_stdlib)
+target_link_libraries(${PROJECT_NAME} pico_stdlib tinyusb_device tinyusb_board)
  
 # Add the standard include files to the build
 target_include_directories(${PROJECT_NAME} PRIVATE
