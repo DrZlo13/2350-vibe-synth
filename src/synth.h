@@ -26,14 +26,17 @@ public:
         env_.SetReleaseTime(0.3f);
 
         fenv_.Init(CTRL_RATE);
-        fenv_.SetAttackTime(0.005f);
-        fenv_.SetDecayTime(0.4f);
-        fenv_.SetSustainLevel(0.2f);
+        fenv_.SetAttackTime(0.1f);
+        fenv_.SetDecayTime(0.1f);
+        fenv_.SetSustainLevel(0.7f);
         fenv_.SetReleaseTime(0.5f);
 
         svf_.Init(SAMPLE_RATE);
-        svf_.SetRes(0.1f);
-        svf_.SetDrive(0.0f);
+        svf_.SetRes(0.8f);
+        svf_.SetDrive(1.0f);
+
+        od_.Init();
+        od_.SetDrive(0.3f);
     }
 
     void note_on(int note, int vel) {
@@ -48,7 +51,7 @@ public:
 
     // Returns true when envelope has fully decayed (voice can be reused)
     bool is_silent() const {
-        return amplitude_ < 0.001f;
+        return (amplitude_ < 0.001f) && gate_ == false;
     }
 
     // Process one sample, returns value in -1..1
@@ -61,7 +64,7 @@ public:
 
             // fenv 0..1 -> cutoff 200..12000 Hz (exponential)
             float fenv_val = fenv_.Process(gate_);
-            svf_.SetFreq(200.0f * powf(60.0f, fenv_val));
+            svf_.SetFreq(freq_ * fenv_val * 32.0f + lfo_.Process() * 100.0f + 200.0f);
 
             amplitude_ = env_.Process(gate_);
         }
@@ -69,7 +72,7 @@ public:
 
         osc_.SetPw(pw_);
         svf_.Process(osc_.Process() * amplitude_);
-        return svf_.Low();
+        return od_.Process(svf_.Low());
     }
 
 private:
@@ -78,6 +81,7 @@ private:
     daisysp::Adsr env_;
     daisysp::Adsr fenv_; // filter envelope
     daisysp::Svf svf_;
+    daisysp::Overdrive od_;
 
     bool gate_ = false;
     float freq_ = 440.0f;

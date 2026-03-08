@@ -60,8 +60,10 @@ void tud_midi_rx_cb(uint8_t itf) {
 
         if(status == 0x90 && vel > 0) { // Note On
             voice_manager.note_on(note, vel);
+            LOG("Note On: %d (vel %d)\n", note, vel);
         } else if(status == 0x80 || (status == 0x90 && vel == 0)) { // Note Off
             voice_manager.note_off(note);
+            LOG("Note Off: %d\n", note);
         }
     }
 }
