@@ -2,6 +2,13 @@
 #include "tusb.h"
 #include "daisysp.h"
 #include "pico/audio_i2s.h"
+#include "SEGGER_RTT.h"
+
+#define LOG(...) SEGGER_RTT_printf(0, __VA_ARGS__)
+// RTT printf does not support floating point, so we need to split the float into integer and fractional parts for display
+#define FI(f)    ((int)(f))
+#define FF1(f)   ((int)(((f) - (int)(f)) * 10))
+#define FF2(f)   ((int)(((f) - (int)(f)) * 100))
 
 #define SAMPLE_RATE   44100
 #define BUFFER_FRAMES 256
@@ -22,10 +29,6 @@ static daisysp::Adsr fenv; // filter envelope
 static daisysp::Svf svf;
 static volatile bool gate = false;
 static volatile float osc_freq = 440.0f;
-
-static inline float midi_note_to_freq(uint8_t note) {
-    return 440.0f * powf(2.0f, (note - 69) / 12.0f);
-}
 
 static audio_buffer_pool_t* audio_init() {
     static audio_format_t fmt = {
@@ -61,10 +64,12 @@ void tud_midi_rx_cb(uint8_t itf) {
         uint8_t vel = packet[3];
 
         if(status == 0x90 && vel > 0) { // Note On
-            osc_freq = midi_note_to_freq(note);
+            osc_freq = daisysp::mtof(note);
             gate = true;
+            LOG("Note On  : %d  vel=%d  freq=%dHz\n", note, vel, (int)osc_freq);
         } else if(status == 0x80 || (status == 0x90 && vel == 0)) { // Note Off
             gate = false;
+            LOG("Note Off : %d\n", note);
         }
     }
 }
@@ -98,6 +103,17 @@ int main() {
     svf.SetDrive(0.0f);
 
     audio_buffer_pool_t* pool = audio_init();
+
+    LOG("=== 2350 Vibe Synth ===\n");
+    LOG("Sample rate : %d Hz\n", SAMPLE_RATE);
+    LOG("Buffer size : %d frames\n", BUFFER_FRAMES);
+    LOG("Osc         : POLYBLEP_SQUARE\n");
+    LOG("LFO         : TRI %d.%d Hz -> PW\n", FI(0.4f), FF1(0.4f));
+    LOG("Env A/D/S/R : %dms / %dms / %d%% / %dms\n", FI(10.0f), FI(100.0f), FI(70.0f), FI(300.0f));
+    LOG("FEnv A/D/S/R: %dms / %dms / %d%% / %dms\n", FI(5.0f), FI(400.0f), FI(20.0f), FI(500.0f));
+    LOG("Filter      : SVF lowpass, res=0.1, cutoff 200..12000 Hz\n");
+    LOG("I2S         : DATA=GP%d, BCLK=GP%d, LRCLK=GP%d\n", I2S_PIN_DATA, I2S_PIN_CLK, I2S_PIN_CLK + 1);
+    LOG("Ready. Waiting for MIDI...\n\n");
 
     while(true) {
         tud_task();

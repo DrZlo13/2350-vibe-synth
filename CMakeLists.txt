@@ -54,9 +54,16 @@ add_compile_definitions(USE_ARM_DSP)
 add_subdirectory(lib/DaisySP)
 add_subdirectory(lib/CMSIS-DSP)
 
+add_library(segger_rtt STATIC
+    lib/RTT/RTT/SEGGER_RTT.c
+    lib/RTT/RTT/SEGGER_RTT_printf.c
+)
+target_include_directories(segger_rtt PUBLIC lib/RTT/RTT lib/RTT/Config)
+
 target_link_libraries(${PROJECT_NAME} DaisySP)
 target_link_libraries(${PROJECT_NAME} CMSISDSP)
 target_link_libraries(${PROJECT_NAME} pico_audio_i2s)
+target_link_libraries(${PROJECT_NAME} segger_rtt)
 
 # Add the standard library to the build
 target_link_libraries(${PROJECT_NAME} pico_stdlib tinyusb_device tinyusb_board)

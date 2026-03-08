@@ -4,3 +4,6 @@
 [submodule "lib/CMSIS-DSP"]
 	path = lib/CMSIS-DSP
 	url = https://github.com/ARM-software/CMSIS-DSP.git
+[submodule "lib/RTT"]
+	path = lib/RTT
+	url = https://github.com/SEGGERMicro/RTT.git
