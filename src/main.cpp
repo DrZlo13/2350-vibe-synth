@@ -12,7 +12,7 @@
 
 #define SAMPLE_RATE   44100
 #define BUFFER_FRAMES 256
-#define VOICES        1
+#define VOICES        8
 
 // PCM5102A setup:
 //   SCK - solder bridge close (SCK to GND)
@@ -73,7 +73,7 @@ void tud_midi_rx_cb(uint8_t itf) {
 int main() {
     tusb_init();
     for(auto& v : voices) {
-        v.init(SAMPLE_RATE);
+        v.init(SAMPLE_RATE, 16); // ctrl_div=16 -> control rate ~275 Hz
     }
 
     audio_buffer_pool_t* pool = audio_init();
