@@ -20,6 +20,12 @@ public:
         }
     }
 
+    bool any_active() const {
+        for(int i = 0; i < N; i++)
+            if(states_[i].gate) return true;
+        return false;
+    }
+
     // Mix all voices, returns value in -1..1
     float process() {
         float mix = 0.0f;

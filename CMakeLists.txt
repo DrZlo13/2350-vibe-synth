@@ -38,7 +38,7 @@ project(2350-vibe-synth C CXX ASM)
 pico_sdk_init()
 
 # Add sources under src folder
-file(GLOB SRC_FILES src/*.c src/*.cpp)
+file(GLOB_RECURSE SRC_FILES src/*.c src/*.cpp)
 
 # Add executable. Default name is the project name, version 0.1
 
@@ -70,14 +70,23 @@ target_link_libraries(${PROJECT_NAME} DaisySP)
 target_link_libraries(${PROJECT_NAME} CMSISDSP)
 target_link_libraries(${PROJECT_NAME} pico_audio_i2s)
 target_link_libraries(${PROJECT_NAME} segger_rtt)
+target_link_libraries(${PROJECT_NAME} hardware_pwm)
+target_link_libraries(${PROJECT_NAME} hardware_spi)
+target_link_libraries(${PROJECT_NAME} pico_multicore)
 
 # Add the standard library to the build
 target_link_libraries(${PROJECT_NAME} pico_stdlib tinyusb_device tinyusb_board)
  
 # Add the standard include files to the build
-target_include_directories(${PROJECT_NAME} PRIVATE
-    ${CMAKE_CURRENT_LIST_DIR}/src
-)
+file(GLOB_RECURSE SRC_SUBDIRS LIST_DIRECTORIES true src/*)
+set(SRC_INCLUDE_DIRS ${CMAKE_CURRENT_LIST_DIR}/src ${CMAKE_CURRENT_LIST_DIR}/lib/drivers)
+foreach(entry ${SRC_SUBDIRS})
+    if(IS_DIRECTORY ${entry})
+        list(APPEND SRC_INCLUDE_DIRS ${entry})
+    endif()
+endforeach()
+
+target_include_directories(${PROJECT_NAME} PRIVATE ${SRC_INCLUDE_DIRS})
 
 pico_add_extra_outputs(${PROJECT_NAME})
 

@@ -1,14 +1,13 @@
 #include "pico/stdlib.h"
+#include "pico/multicore.h"
 #include "tusb.h"
 #include "pico/audio_i2s.h"
 #include "SEGGER_RTT.h"
 
+#include "ui/ui.h"
 #include "voice_manager.h"
 
 #define LOG(...) SEGGER_RTT_printf(0, __VA_ARGS__)
-// RTT printf does not support %f — split float into integer and fractional parts
-#define FI(f)    ((int)(f))
-#define FF1(f)   ((int)(((f) - (int)(f)) * 10))
 
 #define SAMPLE_RATE   44100
 #define BUFFER_FRAMES 256
@@ -22,6 +21,7 @@
 //   H4L (FMT)  = L
 #define I2S_PIN_DATA 2
 #define I2S_PIN_CLK  3 // BCLK=3, LRCLK=4
+#define LED_PIN      25
 
 static VoiceManager<VOICES, SAMPLE_RATE> voice_manager;
 
@@ -68,20 +68,22 @@ void tud_midi_rx_cb(uint8_t itf) {
     }
 }
 
-int main() {
+int main(void) {
+    // somehow openocd fucks up the multicore reset
+    // so we need to reset core1 manually
+    sleep_ms(5);
+    multicore_reset_core1();
+    (void)multicore_fifo_pop_blocking();
+
+    multicore_launch_core1(ui_thread);
+
+    gpio_init(LED_PIN);
+    gpio_set_dir(LED_PIN, GPIO_OUT);
+
     tusb_init();
     audio_buffer_pool_t* pool = audio_init();
 
     LOG("=== 2350 Vibe Synth ===\n");
-    LOG("Sample rate : %d Hz\n", SAMPLE_RATE);
-    LOG("Buffer size : %d frames\n", BUFFER_FRAMES);
-    LOG("Osc         : POLYBLEP_SQUARE\n");
-    LOG("LFO         : TRI %d.%d Hz -> PW\n", FI(0.4f), FF1(0.4f));
-    LOG("Env A/D/S/R : %dms / %dms / %d%% / %dms\n", FI(10.0f), FI(100.0f), FI(70.0f), FI(300.0f));
-    LOG("FEnv A/D/S/R: %dms / %dms / %d%% / %dms\n", FI(5.0f), FI(400.0f), FI(20.0f), FI(500.0f));
-    LOG("Filter      : SVF lowpass, res=0.1, cutoff 200..12000 Hz\n");
-    LOG("I2S         : DATA=GP%d, BCLK=GP%d, LRCLK=GP%d\n", I2S_PIN_DATA, I2S_PIN_CLK, I2S_PIN_CLK + 1);
-    LOG("Ready. Waiting for MIDI...\n\n");
 
     // Time budget per buffer in microseconds
     static const uint32_t BUDGET_US = BUFFER_FRAMES * 1000000u / SAMPLE_RATE;
@@ -110,6 +112,8 @@ int main() {
 
         buf->sample_count = buf->max_sample_count;
         give_audio_buffer(pool, buf);
+
+        gpio_put(LED_PIN, voice_manager.any_active());
 
         if(++buf_count >= LOG_INTERVAL) {
             // average DSP load over the interval in percent
