@@ -59,6 +59,7 @@ add_compile_options(-O3 -ffast-math)
 
 add_subdirectory(lib/DaisySP)
 add_subdirectory(lib/CMSIS-DSP)
+add_subdirectory(lib/quadrature_encoder)
 
 add_library(segger_rtt STATIC
     lib/RTT/RTT/SEGGER_RTT.c
@@ -73,6 +74,7 @@ target_link_libraries(${PROJECT_NAME} segger_rtt)
 target_link_libraries(${PROJECT_NAME} hardware_pwm)
 target_link_libraries(${PROJECT_NAME} hardware_spi)
 target_link_libraries(${PROJECT_NAME} pico_multicore)
+target_link_libraries(${PROJECT_NAME} quadrature_encoder)
 
 # Add the standard library to the build
 target_link_libraries(${PROJECT_NAME} pico_stdlib tinyusb_device tinyusb_board)

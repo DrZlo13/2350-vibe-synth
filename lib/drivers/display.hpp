@@ -81,29 +81,33 @@ public:
         set_window(offset_x, offset_y, offset_x + w - 1, offset_y + h - 1);
         write_command(CMD::RAMWR);
 
+        spi_set_format(spi, 16, SPI_CPOL_0, SPI_CPHA_0, SPI_MSB_FIRST);
         cs(false);
         dc(true);
-        spi_write_blocking(spi, buffer, size);
+        spi_write16_blocking(spi, (uint16_t*)buffer, size);
         cs(true);
+        spi_set_format(spi, 8, SPI_CPOL_0, SPI_CPHA_0, SPI_MSB_FIRST);
     }
 
     void fill(uint16_t color) {
         uint16_t data[width];
         for(size_t i = 0; i < width; i++) {
-            data[i] = color >> 8 | (color & 0xFF) << 8; // convert to big endian
+            data[i] = color;
         }
 
         set_window(offset_x, offset_y, offset_x + width - 1, offset_y + height - 1);
         write_command(CMD::RAMWR);
 
+        spi_set_format(spi, 16, SPI_CPOL_0, SPI_CPHA_0, SPI_MSB_FIRST);
         cs(false);
         dc(true);
 
         for(size_t j = 0; j < height; j++) {
-            spi_write_blocking(spi, (uint8_t*)data, width * 2);
+            spi_write16_blocking(spi, data, width);
         }
 
         cs(true);
+        spi_set_format(spi, 8, SPI_CPOL_0, SPI_CPHA_0, SPI_MSB_FIRST);
     }
 
     void eco_mode(bool enable) {
@@ -266,7 +270,7 @@ private:
         write_data(0xE0);
 
         write_command(CMD::MADCTL);
-        write_data(0x00);
+        write_data(0x60); // MX | MV = 90° CW rotation
 
         write_command(CMD::COLMOD);
         write_data(0x05);

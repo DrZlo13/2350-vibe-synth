@@ -1,6 +1,6 @@
 # RP2350 Vibe Synth
 
-An experiment in LLM-assisted embedded development. I define the architecture and hardware specs — Claude Code writes the implementation.
+An experiment in LLM-assisted embedded development
 
 ## Hardware
 
@@ -9,6 +9,33 @@ An experiment in LLM-assisted embedded development. I define the architecture an
 | MCU | Raspberry Pi Pico 2 (RP2350) |
 | DAC | PCM5102A (I2S) |
 | Interface | USB MIDI (TinyUSB) |
+| Screen | ST7789P3 2.25" SPI TFT |
+| Controls | Rotary encoder with push button |
+
+**Rotary encoder wiring:**
+
+| Encoder | RP2350 | Notes |
+|---------|--------|-------|
+| A | GP12 | PIO quadrature input |
+| B | GP13 | PIO quadrature input |
+| BTN | GP14 | Button |
+| VCC | 3.3V | |
+| GND | GND | |
+
+> Uses PIO0 with `quadrature_encoder.pio`. Pins must be consecutive (A < B). 4 pulses per detent.
+
+**ST7789P3 wiring:**
+
+| ST7789P3 | RP2350 | Notes |
+|----------|--------|-------|
+| SCL | GP6 | SPI0 SCK |
+| SDA | GP7 | SPI0 TX |
+| BL | GP8 | PWM backlight |
+| CS | GP9 | SPI0 CS |
+| DC | GP10 | Data/command |
+| RST | GP11 | Reset |
+| VCC | 3.3V | |
+| GND | GND | |
 
 **PCM5102A wiring:**
 
@@ -57,4 +84,4 @@ cmake ..
 make
 ```
 
-Flash `2350-vibe-synth.uf2` to the board in BOOTSEL mode.
+Flash `.uf2` to the board in BOOTSEL mode.

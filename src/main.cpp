@@ -24,6 +24,7 @@
 #define LED_PIN      25
 
 static VoiceManager<VOICES, SAMPLE_RATE> voice_manager;
+float volatile dsp_load = 0.5f; // 0..1, for UI display
 
 static audio_buffer_pool_t* audio_init() {
     static audio_format_t fmt = {
@@ -35,7 +36,7 @@ static audio_buffer_pool_t* audio_init() {
         .format = &fmt,
         .sample_stride = 4, // 2 ch * 2 bytes
     };
-    audio_buffer_pool_t* pool = audio_new_producer_pool(&producer_fmt, 3, BUFFER_FRAMES);
+    audio_buffer_pool_t* pool = audio_new_producer_pool(&producer_fmt, 2, BUFFER_FRAMES);
 
     static const audio_i2s_config_t i2s_cfg = {
         .data_pin = I2S_PIN_DATA,
@@ -119,6 +120,7 @@ int main(void) {
             // average DSP load over the interval in percent
             uint32_t avg_us = (uint32_t)(load_acc_us / LOG_INTERVAL);
             uint32_t load_pct = avg_us * 100 / BUDGET_US;
+            dsp_load = (float)load_pct / 100.0f;
             LOG("CPU load: %d%% (avg %d us / budget %d us)\n", load_pct, avg_us, BUDGET_US);
             buf_count = 0;
             load_acc_us = 0;
