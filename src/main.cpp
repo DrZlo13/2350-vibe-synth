@@ -2,16 +2,17 @@
 #include "pico/multicore.h"
 #include "tusb.h"
 #include "pico/audio_i2s.h"
-#include "SEGGER_RTT.h"
 
+#include "log.h"
+#include "synth_params.h"
 #include "ui/ui.h"
 #include "voice_manager.h"
 
-#define LOG(...) SEGGER_RTT_printf(0, __VA_ARGS__)
+SynthParams g_synth_params;
 
 #define SAMPLE_RATE   44100
 #define BUFFER_FRAMES 256
-#define VOICES        8
+#define VOICES        6
 
 // PCM5102A setup:
 //   SCK - solder bridge close (SCK to GND)
@@ -61,10 +62,10 @@ void tud_midi_rx_cb(uint8_t itf) {
 
         if(status == 0x90 && vel > 0) { // Note On
             voice_manager.note_on(note, vel);
-            LOG("Note On: %d (vel %d)\n", note, vel);
+            Log::info("Note On: %d (vel %d)\n", note, vel);
         } else if(status == 0x80 || (status == 0x90 && vel == 0)) { // Note Off
             voice_manager.note_off(note);
-            LOG("Note Off: %d\n", note);
+            Log::info("Note Off: %d\n", note);
         }
     }
 }
@@ -84,7 +85,7 @@ int main(void) {
     tusb_init();
     audio_buffer_pool_t* pool = audio_init();
 
-    LOG("=== 2350 Vibe Synth ===\n");
+    Log::info("=== 2350 Vibe Synth ===\n");
 
     // Time budget per buffer in microseconds
     static const uint32_t BUDGET_US = BUFFER_FRAMES * 1000000u / SAMPLE_RATE;
@@ -121,7 +122,7 @@ int main(void) {
             uint32_t avg_us = (uint32_t)(load_acc_us / LOG_INTERVAL);
             uint32_t load_pct = avg_us * 100 / BUDGET_US;
             dsp_load = (float)load_pct / 100.0f;
-            LOG("CPU load: %d%% (avg %d us / budget %d us)\n", load_pct, avg_us, BUDGET_US);
+            Log::info("CPU load: %d%% (avg %d us / budget %d us)\n", load_pct, avg_us, BUDGET_US);
             buf_count = 0;
             load_acc_us = 0;
         }

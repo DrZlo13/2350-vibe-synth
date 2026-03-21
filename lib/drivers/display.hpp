@@ -68,7 +68,8 @@ public:
         sleep_ms(10);
 
         // Initialize the display
-        st7789s_initialize();
+        // st7789s_2_25_tft_initialize();
+        st7789s_1_9_ips_initialize();
 
         freq = spi_set_baudrate(spi, 75 * 1000 * 1000);
     }
@@ -254,7 +255,90 @@ private:
         write_data(y1 & 0xFF);
     }
 
-    void st7789s_initialize(void) {
+    void st7789s_1_9_ips_initialize() {
+        write_command(CMD::COLMOD);
+        write_data(0x05); // 16-bit color (RGB565)
+
+        write_command(CMD::PORCTRL);
+        write_data(0x0C);
+        write_data(0x0C);
+        write_data(0x00);
+        write_data(0x33);
+        write_data(0x33);
+
+        write_command(CMD::RAMCTRL);
+        write_data(0x00);
+        write_data(0xE0);
+
+        write_command(CMD::MADCTL);
+        write_data(0x60); // MX | MV = 90° CW rotation
+
+        write_command(CMD::GCTRL);
+        write_data(0x35);
+
+        write_command(CMD::VCOMS);
+        write_data(0x1A);
+
+        write_command(CMD::LCMCTRL);
+        write_data(0x2C);
+
+        write_command(CMD::VRHEN);
+        write_data(0x01);
+
+        write_command(CMD::VRHS);
+        write_data(0x0B);
+
+        write_command(CMD::VDVS);
+        write_data(0x20);
+
+        write_command(CMD::FRCTRL2);
+        write_data(0x0F);
+
+        write_command(CMD::PWCTRL1);
+        write_data(0xA4);
+        write_data(0xA1);
+
+        write_command(CMD::INVON);
+
+        write_command(CMD::PVGAMCTRL);
+        write_data(0xF0);
+        write_data(0x00);
+        write_data(0x04);
+        write_data(0x04);
+        write_data(0x04);
+        write_data(0x05);
+        write_data(0x29);
+        write_data(0x33);
+        write_data(0x3E);
+        write_data(0x38);
+        write_data(0x12);
+        write_data(0x12);
+        write_data(0x28);
+        write_data(0x30);
+
+        write_command(CMD::NVGAMCTRL);
+        write_data(0xF0);
+        write_data(0x07);
+        write_data(0x0A);
+        write_data(0x0D);
+        write_data(0x0B);
+        write_data(0x07);
+        write_data(0x28);
+        write_data(0x33);
+        write_data(0x3E);
+        write_data(0x36);
+        write_data(0x14);
+        write_data(0x14);
+        write_data(0x29);
+        write_data(0x32);
+
+        write_command(CMD::SLPOUT);
+        sleep_ms(120);
+
+        write_command(CMD::DISPON);
+    }
+
+    void st7789s_2_25_tft_initialize(void) {
         write_command(CMD::SLPOUT);
         sleep_ms(120);
 

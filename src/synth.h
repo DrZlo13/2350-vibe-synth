@@ -1,6 +1,7 @@
 #pragma once
 
 #include "daisysp.h"
+#include "synth_params.h"
 #include <cmath>
 
 template <int SAMPLE_RATE, int CTRL_DIV = 16>
@@ -14,10 +15,10 @@ public:
         osc_.SetAmp(1.0f);
 
         // LFO and envelopes run at control rate
-        lfo_.Init(CTRL_RATE);
-        lfo_.SetWaveform(daisysp::Oscillator::WAVE_TRI);
-        lfo_.SetFreq(0.4f);
-        lfo_.SetAmp(1.0f);
+        // lfo_.Init(CTRL_RATE);
+        // lfo_.SetWaveform(daisysp::Oscillator::WAVE_TRI);
+        // lfo_.SetFreq(0.4f);
+        // lfo_.SetAmp(1.0f);
 
         env_.Init(CTRL_RATE);
         env_.SetAttackTime(0.01f);
@@ -41,7 +42,7 @@ public:
 
     void note_on(int note, int vel) {
         (void)vel;
-        freq_ = daisysp::mtof(note);
+        midi_note_ = (float)note;
         gate_ = true;
     }
 
@@ -56,15 +57,30 @@ public:
 
     // Process one sample, returns value in -1..1
     float process() {
-        osc_.SetFreq(freq_);
-
         if(ctrl_counter_ == 0) {
-            // LFO -1..1 -> pw 0.15..0.85 (avoid artifacts near the edges)
-            pw_ = 0.5f + lfo_.Process() * 0.35f;
+            osc_.SetWaveform((uint8_t)g_synth_params.waveform);
+            osc_.SetFreq(daisysp::mtof(midi_note_ + g_synth_params.base_note - 60.0f));
 
-            // fenv 0..1 -> cutoff 200..12000 Hz (exponential)
+            env_.SetAttackTime(g_synth_params.env_attack);
+            env_.SetDecayTime(g_synth_params.env_decay);
+            env_.SetSustainLevel(g_synth_params.env_sustain);
+            env_.SetReleaseTime(g_synth_params.env_release);
+
+            fenv_.SetAttackTime(g_synth_params.fenv_attack);
+            fenv_.SetDecayTime(g_synth_params.fenv_decay);
+            fenv_.SetSustainLevel(g_synth_params.fenv_sustain);
+            fenv_.SetReleaseTime(g_synth_params.fenv_release);
+
+            // LFO -1..1 -> pw 0.15..0.85 (avoid artifacts near the edges)
+            // pw_ = 0.5f + lfo_.Process() * 0.35f;
+            pw_ = 0.5f;
+
             float fenv_val = fenv_.Process(gate_);
-            svf_.SetFreq(freq_ * fenv_val * 32.0f + lfo_.Process() * 100.0f + 200.0f);
+            svf_.SetFreq(g_synth_params.filter_cutoff * (1.0f + fenv_val * 4.0f));
+            svf_.SetRes(g_synth_params.filter_res);
+            svf_.SetDrive(g_synth_params.filter_drive);
+
+            od_.SetDrive(g_synth_params.overdrive);
 
             amplitude_ = env_.Process(gate_);
         }
@@ -77,14 +93,14 @@ public:
 
 private:
     daisysp::Oscillator osc_;
-    daisysp::Oscillator lfo_;
+    // daisysp::Oscillator lfo_;
     daisysp::Adsr env_;
     daisysp::Adsr fenv_; // filter envelope
     daisysp::Svf svf_;
     daisysp::Overdrive od_;
 
     bool gate_ = false;
-    float freq_ = 440.0f;
+    float midi_note_ = 69.0f; // A4
 
     // Cached control-rate values
     int ctrl_counter_ = 0;

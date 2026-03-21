@@ -1,4 +1,5 @@
 #include "pico/stdlib.h"
+#include <cstdio>
 #include "display.hpp"
 #include "pwm.hpp"
 #include "ui.h"
@@ -7,6 +8,9 @@
 #include "quadrature_encoder.hpp"
 #include "render/render.h"
 #include "daisysp.h"
+#include "log.h"
+#include "encoder_accel.hpp"
+#include "../synth_params.h"
 
 #define D_PIN_SCL 6
 #define D_PIN_SDA 7
@@ -24,13 +28,6 @@ typedef struct {
     const int32_t value;
 } ListItem;
 
-typedef struct {
-    const ListItem* items;
-    const size_t count;
-    const size_t default_index;
-    size_t index;
-} ParameterList;
-
 constexpr Color rgb(uint8_t r, uint8_t g, uint8_t b) {
     return ((Color)(r >> 3) << 11) | ((Color)(g >> 2) << 5) | (b >> 3);
 }
@@ -42,38 +39,83 @@ extern float volatile dsp_load;
 
 class Parameter {
 public:
-    Parameter(const char* name, const ListItem* items, size_t count, size_t default_index)
+    // List mode: discrete items (wave selection, ADSR, etc.)
+    using Callback = void (*)(float);
+    using Formatter = void (*)(float value, char* buf, size_t size);
+
+    Parameter(const char* name, const ListItem* items, size_t count, size_t default_index, Callback on_change = nullptr)
         : name(name)
-        , list{items, count, default_index, default_index} {
-        inbetween_value = 0;
+        , mode(MODE_LIST)
+        , show_value_timer(0)
+        , inbetween_value(0.0f)
+        , on_change(on_change)
+        , formatter(nullptr) {
+        list.items = items;
+        list.count = count;
+        list.index = default_index;
+        cont = {};
+        if(on_change) on_change(get_float_value());
+    }
+
+    // Continuous mode: float range with step.
+    // formatter: optional display function; nullptr = note name (e.g. "C4+25")
+    Parameter(const char* name, float min_val, float max_val, float step, float default_val, Formatter formatter = nullptr, Callback on_change = nullptr)
+        : name(name)
+        , mode(MODE_CONTINUOUS)
+        , show_value_timer(0)
+        , inbetween_value(0.0f)
+        , on_change(on_change)
+        , formatter(formatter) {
+        list = {};
+        cont.min_val = min_val;
+        cont.max_val = max_val;
+        cont.step = step;
+        cont.value = default_val;
+        if(on_change) on_change(get_float_value());
+    }
+
+    int32_t get_int_value() const {
+        if(mode == MODE_LIST) return list.items[list.index].value;
+        return (int32_t)cont.value;
+    }
+
+    float get_float_value() const {
+        if(mode == MODE_LIST) return (float)list.items[list.index].value;
+        return cont.value;
     }
 
     void increase(float amount) {
-        inbetween_value += amount;
-        if(inbetween_value >= 1.0f) {
-            inbetween_value = 0.0f;
-            if(list.index < list.count - 1) {
-                list.index = list.index + 1;
+        Log::info("Increase %s by %d.%02d\n", name, (int)amount, (int)(amount * 100) % 100);
+        if(mode == MODE_LIST) {
+            inbetween_value += amount;
+            if(inbetween_value >= 1.0f) {
+                inbetween_value = 0.0f;
+                if(list.index < list.count - 1) list.index++;
             }
+        } else {
+            cont.value += amount * cont.step;
+            if(cont.value > cont.max_val) cont.value = cont.max_val;
         }
-
+        if(on_change) on_change(get_float_value());
         show_value_timer = 120;
     }
 
     void decrease(float amount) {
-        inbetween_value -= amount;
-        if(inbetween_value <= -1.0f) {
-            inbetween_value = 0.0f;
-            if(list.index > 0) {
-                list.index = list.index - 1;
+        if(mode == MODE_LIST) {
+            inbetween_value -= amount;
+            if(inbetween_value <= -1.0f) {
+                inbetween_value = 0.0f;
+                if(list.index > 0) list.index--;
             }
+        } else {
+            cont.value -= amount * cont.step;
+            if(cont.value < cont.min_val) cont.value = cont.min_val;
         }
-
+        if(on_change) on_change(get_float_value());
         show_value_timer = 120;
     }
 
     void render(int32_t center_x, int32_t center_y, Color border_color) {
-        const size_t str_buffer_size = 32;
         const Color color = 0xFFFF;
         const Font font_id = FontBody;
 
@@ -81,42 +123,63 @@ public:
 
         if(show_value_timer > 0) {
             show_value_timer--;
-            render_text_aligned(center_x, center_y + 14, Center, Center, list.items[list.index].name, font_id, color);
+            render_text_aligned(center_x, center_y + 14, Center, Center, current_value_str(), font_id, color);
         } else {
             render_text_aligned(center_x, center_y + 14, Center, Center, name, font_id, color);
         }
 
-        // track bar with index notch
+        // track bar with position notch
         const int32_t bar_x = center_x - 14;
         const int32_t bar_y = center_y - 4;
         const int32_t bar_w = 28;
         render_rectangle(bar_x, bar_y, bar_w, 1, 0, 0, 0, 0, rgb(80, 80, 80));
-        if(list.count > 1) {
-            int32_t tick_x = bar_x + (int32_t)(list.index * bar_w / (list.count - 1));
-            render_rectangle(tick_x - 1, bar_y - 3, 2, 7, 0, 0, 0, 0, color);
+
+        float pos = 0.0f;
+        if(mode == MODE_LIST && list.count > 1) {
+            pos = (float)list.index / (float)(list.count - 1);
+        } else if(mode == MODE_CONTINUOUS) {
+            pos = (cont.value - cont.min_val) / (cont.max_val - cont.min_val);
         }
+        int32_t tick_x = bar_x + (int32_t)(pos * (float)bar_w);
+        render_rectangle(tick_x - 1, bar_y - 3, 2, 7, 0, 0, 0, 0, color);
     }
 
 private:
+    const char* current_value_str() {
+        if(mode == MODE_LIST) return list.items[list.index].name;
+
+        formatter(cont.value, value_buf, sizeof(value_buf));
+        return value_buf;
+    }
+
+    enum Mode {
+        MODE_LIST,
+        MODE_CONTINUOUS
+    };
+
     const char* name;
-    ParameterList list;
+    Mode mode;
     int32_t show_value_timer;
     float inbetween_value;
+    Callback on_change;
+    Formatter formatter;
+    char value_buf[16];
+
+    struct {
+        const ListItem* items;
+        size_t count;
+        size_t index;
+    } list;
+
+    struct {
+        float min_val;
+        float max_val;
+        float step;
+        float value;
+    } cont;
 };
 
-// TODO: we need +-5 octaves with 0.01 step between notes, like in Digitakt
-const ListItem note_items[] = {
-    {"C0", 12}, {"C#0", 13}, {"D0", 14}, {"D#0", 15}, {"E0", 16},  {"F0", 17},  {"F#0", 18},  {"G0", 19},  {"G#0", 20},  {"A0", 21},  {"A#0", 22},  {"B0", 23},
-    {"C1", 24}, {"C#1", 25}, {"D1", 26}, {"D#1", 27}, {"E1", 28},  {"F1", 29},  {"F#1", 30},  {"G1", 31},  {"G#1", 32},  {"A1", 33},  {"A#1", 34},  {"B1", 35},
-    {"C2", 36}, {"C#2", 37}, {"D2", 38}, {"D#2", 39}, {"E2", 40},  {"F2", 41},  {"F#2", 42},  {"G2", 43},  {"G#2", 44},  {"A2", 45},  {"A#2", 46},  {"B2", 47},
-    {"C3", 48}, {"C#3", 49}, {"D3", 50}, {"D#3", 51}, {"E3", 52},  {"F3", 53},  {"F#3", 54},  {"G3", 55},  {"G#3", 56},  {"A3", 57},  {"A#3", 58},  {"B3", 59},
-    {"C4", 60}, {"C#4", 61}, {"D4", 62}, {"D#4", 63}, {"E4", 64},  {"F4", 65},  {"F#4", 66},  {"G4", 67},  {"G#4", 68},  {"A4", 69},  {"A#4", 70},  {"B4", 71},
-    {"C5", 72}, {"C#5", 73}, {"D5", 74}, {"D#5", 75}, {"E5", 76},  {"F5", 77},  {"F#5", 78},  {"G5", 79},  {"G#5", 80},  {"A5", 81},  {"A#5", 82},  {"B5", 83},
-    {"C6", 84}, {"C#6", 85}, {"D6", 86}, {"D#6", 87}, {"E6", 88},  {"F6", 89},  {"F#6", 90},  {"G6", 91},  {"G#6", 92},  {"A6", 93},  {"A#6", 94},  {"B6", 95},
-    {"C7", 96}, {"C#7", 97}, {"D7", 98}, {"D#7", 99}, {"E7", 100}, {"F7", 101}, {"F#7", 102}, {"G7", 103}, {"G#7", 104}, {"A7", 105}, {"A#7", 106}, {"B7", 107},
-};
-
-const ListItem adsr_items[] = {
+const ListItem float_items[] = {
     {"0.00", 0},  {"0.01", 1},   {"0.02", 2},  {"0.03", 3},  {"0.04", 4},  {"0.05", 5},  {"0.06", 6},  {"0.07", 7},  {"0.08", 8},  {"0.09", 9},  {"0.10", 10},
     {"0.11", 11}, {"0.12", 12},  {"0.13", 13}, {"0.14", 14}, {"0.15", 15}, {"0.16", 16}, {"0.17", 17}, {"0.18", 18}, {"0.19", 19}, {"0.20", 20}, {"0.21", 21},
     {"0.22", 22}, {"0.23", 23},  {"0.24", 24}, {"0.25", 25}, {"0.26", 26}, {"0.27", 27}, {"0.28", 28}, {"0.29", 29}, {"0.30", 30}, {"0.31", 31}, {"0.32", 32},
@@ -136,13 +199,39 @@ const ListItem wave_items[] = {
     {"Sqr", daisysp::Oscillator::WAVE_POLYBLEP_SQUARE},
 };
 
+static void fmt_note(float v, char* buf, size_t n) {
+    static const char* names[] = {"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"};
+    int midi = (int)v;
+    int cents = (int)((v - (float)midi) * 100.0f + 0.5f);
+    int octave = midi / 12 - 1;
+    int semi = midi % 12;
+    if(cents == 0)
+        snprintf(buf, n, "%s%d", names[semi], octave);
+    else
+        snprintf(buf, n, "%s%d+%02d", names[semi], octave, cents);
+}
+
+static void fmt_hz(float v, char* buf, size_t n) {
+    snprintf(buf, n, "%dHz", (int)v);
+}
+
+// Note: C-1 (MIDI 0) to C9+99c (MIDI 120.99), step 0.01 (~1 cent), default C4 (MIDI 60)
+// That covers -5 to +5 octaves from C4. 100 encoder ticks per semitone.
 Parameter parameters[] = {
-    Parameter("Wave", wave_items, sizeof(wave_items) / sizeof(wave_items[0]), 0),
-    Parameter("Note", note_items, sizeof(note_items) / sizeof(note_items[0]), 48),
-    Parameter("Atk", adsr_items, sizeof(adsr_items) / sizeof(adsr_items[0]), 0),
-    Parameter("Dec", adsr_items, sizeof(adsr_items) / sizeof(adsr_items[0]), 0),
-    Parameter("Sus", adsr_items, sizeof(adsr_items) / sizeof(adsr_items[0]), 100),
-    Parameter("Rel", adsr_items, sizeof(adsr_items) / sizeof(adsr_items[0]), 0),
+    Parameter("Wave", wave_items, sizeof(wave_items) / sizeof(wave_items[0]), 3, [](float v) { g_synth_params.waveform = (int32_t)v; }),
+    Parameter("BNote", 0.0f, 120.99f, 0.01f, 60.0f, fmt_note, [](float v) { g_synth_params.base_note = v; }),
+    Parameter("Atk", float_items, sizeof(float_items) / sizeof(float_items[0]), 1, [](float v) { g_synth_params.env_attack = v / 100.0f; }),
+    Parameter("Dec", float_items, sizeof(float_items) / sizeof(float_items[0]), 10, [](float v) { g_synth_params.env_decay = v / 100.0f; }),
+    Parameter("Sus", float_items, sizeof(float_items) / sizeof(float_items[0]), 70, [](float v) { g_synth_params.env_sustain = v / 100.0f; }),
+    Parameter("Rel", float_items, sizeof(float_items) / sizeof(float_items[0]), 30, [](float v) { g_synth_params.env_release = v / 100.0f; }),
+    Parameter("FAtk", float_items, sizeof(float_items) / sizeof(float_items[0]), 10, [](float v) { g_synth_params.fenv_attack = v / 100.0f; }),
+    Parameter("FDec", float_items, sizeof(float_items) / sizeof(float_items[0]), 10, [](float v) { g_synth_params.fenv_decay = v / 100.0f; }),
+    Parameter("FSus", float_items, sizeof(float_items) / sizeof(float_items[0]), 70, [](float v) { g_synth_params.fenv_sustain = v / 100.0f; }),
+    Parameter("FRel", float_items, sizeof(float_items) / sizeof(float_items[0]), 50, [](float v) { g_synth_params.fenv_release = v / 100.0f; }),
+    Parameter("FCut", 20.0f, 6000.0f, 10.0f, 1000.0f, fmt_hz, [](float v) { g_synth_params.filter_cutoff = v; }),
+    Parameter("FRes", float_items, sizeof(float_items) / sizeof(float_items[0]), 80, [](float v) { g_synth_params.filter_res = v / 100.0f; }),
+    Parameter("FDrv", float_items, sizeof(float_items) / sizeof(float_items[0]), 100, [](float v) { g_synth_params.filter_drive = v / 100.0f; }),
+    Parameter("Over", float_items, sizeof(float_items) / sizeof(float_items[0]), 30, [](float v) { g_synth_params.overdrive = v / 100.0f; }),
 };
 
 void ui_thread(void) {
@@ -150,7 +239,7 @@ void ui_thread(void) {
     render_set_current_buffer(buffer);
 
     Display<D_PIN_BL, D_PIN_RST, D_PIN_CS, D_PIN_SCL, D_PIN_SDA, D_PIN_DC, D_OFF_X, D_OFF_Y, D_WIDTH, D_HEIGHT> display;
-    display.backlight(0.5f);
+    display.backlight(1.0f);
     display.init();
 
     QuadratureEncoder<ENCODER_PIN_A, ENCODER_PIN_B> encoder;
@@ -159,6 +248,7 @@ void ui_thread(void) {
     const size_t parameter_count = sizeof(parameters) / sizeof(parameters[0]);
     size_t current_parameter = 0;
     bool editing_parameter = false;
+    EncoderAccel encoder_accel(400.0f, 100.0f);
 
     while(true) {
         const int32_t x_start = 0;
@@ -173,10 +263,19 @@ void ui_thread(void) {
 
         int32_t delta = encoder.get_delta();
         if(editing_parameter) {
-            if(delta > 0) {
-                parameters[current_parameter].increase((float)delta);
-            } else if(delta < 0) {
-                parameters[current_parameter].decrease((float)(-delta));
+            if(delta != 0) {
+                // Velocity-based acceleration: measure time between encoder ticks.
+                // Fast spin (small dt) -> large multiplier; slow spin -> multiplier=1.
+                //   dt >= 80ms -> x1  (slow, precise)
+                //   dt =  20ms -> x4
+                //   dt =  5ms  -> x16 (fast)
+                // max capped at 32x
+                float effective = encoder_accel.apply(delta);
+                if(effective > 0.0f) {
+                    parameters[current_parameter].increase(effective);
+                } else {
+                    parameters[current_parameter].decrease(-effective);
+                }
             }
         } else {
             if(delta > 0) {
